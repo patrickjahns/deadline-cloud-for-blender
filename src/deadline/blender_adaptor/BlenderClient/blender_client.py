@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import ctypes
 from types import FrameType
 from typing import Optional
 
@@ -18,6 +19,25 @@ except (ImportError, ModuleNotFoundError):
 
     from deadline.blender_adaptor.BlenderClient.render_handlers import get_render_handler
 
+def windows_pipe_exists(pipe_path: str) -> bool:
+    """Checks if a Windows Named Pipe exists using native kernel32 calls."""
+    if not pipe_path:
+        return False
+
+    # Standard disk file fallback
+    if not pipe_path.startswith(r"\\.\pipe"):
+        return os.path.exists(pipe_path)
+
+    # Call Win32 WaitNamedPipeW with a 0ms timeout
+    # Returns non-zero if a pipe instance exists
+    result = ctypes.windll.kernel32.WaitNamedPipeW(pipe_path, 0)
+    if result != 0:
+        return True
+
+    # GetLastError check
+    # ERROR_PIPE_BUSY (231) or ERROR_ACCESS_DENIED (5) means the pipe exists!
+    last_error = ctypes.GetLastError()
+    return last_error in (231, 5)
 
 class BlenderClient(ClientInterface):
     def __init__(self, server_path: str) -> None:
@@ -44,7 +64,7 @@ def main():
             "BLENDER_ADAPTOR_SERVER_PATH does not exist"
         )
 
-    if not os.path.exists(server_path):
+    if not windows_pipe_exists(server_path):
         raise OSError(
             "BlenderClient cannot connect to the Adaptor because the server at the path defined by "
             "the environment variable BLENDER_ADAPTOR_SERVER_PATH does not exist. Got: "
